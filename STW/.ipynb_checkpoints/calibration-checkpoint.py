@@ -9,7 +9,7 @@ from .model import STW
 # lognormal parameter "loc" is directly calibrated in definition of density, given sigma
 
 class Calibration(): 
-    def __init__(self, Ucalib, distributionname, target_sep  = 0.12, target_sep_eff = 0.07, target_inactive_share = 0.538): 
+    def __init__(self, Ucalib, distributionname, target_sep, target_sep_eff, target_inactive_share, implied_efficient_u): 
         # use STW class (to be consistent) and its solution for the outside option
         # constant paramters
         self.U = Ucalib
@@ -22,6 +22,8 @@ class Calibration():
         self.target_sep = target_sep
         self.target_inactive_share = target_inactive_share
         
+        # for future reference in tables. not needed for calculations 
+        self.implied_efficient_u = implied_efficient_u
         
         # initial guess 
         if self.target_sep_eff > 0:
@@ -56,7 +58,7 @@ class Calibration():
         if self.target_sep_eff == 0:
             theta_eff = 0
         else:
-            theta_eff = ((fraction**exponent1 - A*(fraction**exponent2))**exponent3) * SEARCH**exponent4 # cutoff for planner (CHECK)
+            theta_eff = ((fraction**exponent1 - A*(fraction**exponent2))**exponent3) * SEARCH**exponent4 # cutoff for planner
 
         return [theta_0, theta_eff]
 
@@ -90,7 +92,8 @@ class Calibration():
     
     def evaluate(self, params): 
         ''' Evaluate the fit of each model equation.
-        Uses an explicit solution for n_hat. CAREFUL! MAY NEED TO CHANGE IF MODEL OBJECT CHAGNES!
+            Uses an explicit solution for n_hat. CAREFUL! MAY NEED TO CHANGE IF MODEL OBJECT CHANGES!
+            Always use evaluate_STW to verify the calibration (since it uses the STW object directly)
         '''
          
         phi, A, sigma, SEARCH = params
@@ -107,7 +110,7 @@ class Calibration():
         theta0, thetaeff = self.theta_cutoffs(params)
         self.theta0 = theta0
         self.thetaeff = thetaeff
-        
+
         #equation 1: inaction share (among active firms!)
         e1 = self.dist.expect(lambda x: (np.abs(self.n_hat(x, params) - self.mean) < 0.05), lb = self.theta0, ub = self.upper, conditional=True) 
 
@@ -115,10 +118,12 @@ class Calibration():
         e2 = self.dist.expect(lambda x: self.n_hat(x, params), lb = self.theta0, ub = self.upper, conditional=True)
 
         # equation 3: separation rate 
-        e3 = self.dist.expect(lambda x: (x < self.theta0), lb = self.lower, ub = self.upper, conditional=False) 
+        # e3 = self.dist.expect(lambda x: (x < self.theta0), lb = self.lower, ub = self.upper, conditional=False) 
+        e3 = self.dist.cdf(self.theta0) 
         
         # equation 4: efficient separation rate
-        e4 = self.dist.expect(lambda x: (x < self.thetaeff), lb = self.lower, ub = self.upper, conditional=False) 
+        # e4 = self.dist.expect(lambda x: (x < self.thetaeff), lb = self.lower, ub = self.upper, conditional=False) 
+        e4 = self.dist.cdf(self.thetaeff) 
 
         
         return np.array([e1 - self.target_inactive_share, e2  - 1, e3  - self.target_sep,  10*(e4 - self.target_sep_eff)])
@@ -135,6 +140,8 @@ class Calibration():
         # lf.loc = loc
         
         theta0, thetaeff = self.theta_cutoffs(params)
+        self.theta0 = theta0
+        self.thetaeff = thetaeff
         
         self.add_distribution(params)
 
@@ -143,21 +150,25 @@ class Calibration():
                         upper = self.upper, A = A, U = self.U, phi = phi, qup = self.qup, nt = 1001,
                        participation = "flex", search = SEARCH, information = "imperfect")
         self.stw_perf_ = STW(display = False, distribution = self.distributionname, sigma = sigma, lower = self.lower, mean = self.mean,  
-                        upper = self.upper, A = A, U = self.U, phi = phi, qup = self.qup, nt = 401, 
+                        upper = self.upper, A = A, U = self.U, phi = phi, qup = self.qup, nt = 501, 
                         participation = "flex", search = SEARCH, information = "perfect")
         
         # targeted moments are hard-coded in here for now
 
         #equation 1: inaction share
-        e1 = self.dist.expect(lambda x: (np.abs(self.stw_.outside_qhat(x) - self.mean) < 0.05), lb = self.theta0, ub = self.upper, conditional=True)
+        e1 = self.dist.expect(lambda x: (np.abs(self.stw_.outside_qhat(x) - self.mean) < 0.05), 
+                              lb = self.theta0, ub = self.upper, conditional=True)
 
         # equation 2: normal hours 
         e2 = self.dist.expect(self.stw_.outside_qhat, lb = theta0, ub = self.upper, conditional=True) 
 
         # equation 3: separation rate 
-        e3 = self.dist.expect(lambda x: (np.abs(self.stw_.outside_qhat(x)) < 0.0001), lb = self.lower, ub = theta0, conditional=False)
+        e3 = self.dist.expect(lambda x: (np.abs(self.stw_.outside_qhat(x)) < 0.0001), 
+                              lb = self.lower, ub = theta0, conditional=False)
 
-        
+        # equation 4: efficient separation rate
+        # e4 = self.dist.expect(lambda x: (x < thetaeff), lb = self.lower, ub = self.upper, conditional=False) 
+
         ### Need to solve the perfect-information problem to check for the cutoff of efficient separations in the STW object
         self.stw_perf_.init_gekko()
         self.stw_perf_.solve_gekko()
@@ -166,8 +177,10 @@ class Calibration():
         qperfect = interpolate.interp1d(grid, np.array(self.stw_perf_.q))
         
         # equation 4: efficient separations
-        e4 = self.dist.expect(lambda x: (qperfect(x)<0.0001), lb = self.lower, ub = self.upper, conditional = False)
-        
+        # e4 = self.dist.expect(lambda x: (qperfect(x)<0.0001), lb = self.lower, ub = self.upper, conditional = False)
+        ## lowest theta with iota > 0.9 (excluding first one (technicallity)
+        thetaeff_approximately = min(np.array(self.stw_perf_.theta[1:])[np.array(self.stw_perf_.iota[1:]) > 0.9])
+        e4 = self.dist.cdf(thetaeff_approximately)
 
         return np.array([e1 - self.target_inactive_share, e2  - 1, e3  - self.target_sep, e4 - self.target_sep_eff])
 
