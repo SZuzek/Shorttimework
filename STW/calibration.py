@@ -147,7 +147,7 @@ class Calibration():
 
 
         self.stw_ = STW(display = False, distribution = self.distributionname, sigma = sigma, lower = self.lower, mean = self.mean,  
-                        upper = self.upper, A = A, U = self.U, phi = phi, qup = self.qup, nt = 1001,
+                        upper = self.upper, A = A, U = self.U, phi = phi, qup = self.qup, nt = 501,
                        participation = "flex", search = SEARCH, information = "imperfect")
         self.stw_perf_ = STW(display = False, distribution = self.distributionname, sigma = sigma, lower = self.lower, mean = self.mean,  
                         upper = self.upper, A = A, U = self.U, phi = phi, qup = self.qup, nt = 501, 

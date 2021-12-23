@@ -55,8 +55,6 @@ class STW():
                  participation = "forced", mean = 1, sigma = 0.1, display = True): 
     
         
-        ## INITIALIZE GEKKO
-        self.m = GEKKO(remote = False)
     
         ## PARAMETERS 
         self.nt = nt # number of grid points
@@ -164,6 +162,9 @@ class STW():
     # variables that should be accesible have to be declared with self. 
     def init_gekko(self): 
         
+        ## INITIALIZE GEKKO
+        self.m = GEKKO(remote = True)
+        
         m = self.m
         # variables
         
@@ -252,14 +253,22 @@ class STW():
         self.value = m.Intermediate(saf*final)
     
     # Solution settings
-    def solve_gekko(self):
+    def solve_gekko(self, rtol = 1.0e-6, otol = 1.0e-6, max_iter = 1000):
         # setup solver and solve
         m = self.m
         m.options.IMODE = 6 # optimal control mode
         m.options.MAX_ITER = 1200 
         m.options.DIAGLEVEL = 1 # diagnostics level
 #         m.options.SOLVER = 0 # compare all available solvers
+#         m.options.SOLVER = 1 
         m.options.SOLVER = 3 # default. 
+
+        m.options.RTOL = rtol
+        m.options.OTOL = otol
+        
+        m.options.MAX_ITER = max_iter # default: 250
+        m.options.MAX_MEMORY = 4 # default: 4. sufficient, unless memory error is thrown 
+        
         # m.options.SOLVER = 1 # integer problems. not performing well
         m.solve(disp=self.display) # solve
 
